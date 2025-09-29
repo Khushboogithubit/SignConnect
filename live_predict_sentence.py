@@ -2,15 +2,18 @@ import cv2
 import mediapipe as mp
 import pickle
 import time
-from grammar_corrector import correct_sentence  # ✅ Grammar fixer (Hugging Face version)
+import threading
+from grammar_corrector import correct_sentence  # ✅ Hugging Face grammar fixer
 
+# -------------------------------
 # Load trained model
+# -------------------------------
 with open("model/gesture_model.pkl", "rb") as f:
     model = pickle.load(f)
 
 # MediaPipe setup
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
+hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7)
 mp_draw = mp.solutions.drawing_utils
 
 # Webcam setup
@@ -20,19 +23,39 @@ cap = cv2.VideoCapture(0)
 sentence = []
 last_word = ""
 last_word_time = time.time()
-last_correction_time = time.time()
-polished = ""  # initialized once
+polished = ""  # latest corrected sentence
 
-# Update sentence only if word changes
+# Lock for thread-safe grammar correction
+lock = threading.Lock()
+
+# -------------------------------
+# Sentence update function
+# -------------------------------
 def update_sentence(word):
     global last_word, last_word_time, sentence
-    if word != last_word and time.time() - last_word_time > 1:
+    if word != last_word and time.time() - last_word_time > 1:  # avoid duplicates
         sentence.append(word)
         last_word = word
         last_word_time = time.time()
 
-print("🎥 Live Sign Prediction Running — Press 'q' to quit.")
+# -------------------------------
+# Background grammar correction thread
+# -------------------------------
+def background_corrector():
+    global polished
+    while True:
+        if len(sentence) > 0:
+            raw_text = " ".join(sentence[-5:])  # last 5 words only
+            new_text = correct_sentence(raw_text)
+            with lock:
+                polished = new_text
+        time.sleep(2)  # run every 2 sec without blocking video
 
+threading.Thread(target=background_corrector, daemon=True).start()
+
+# -------------------------------
+print("🎥 Live Sign Prediction Running — Press 'q' to quit.")
+# -------------------------------
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -53,14 +76,11 @@ while cap.isOpened():
                 cv2.putText(frame, f"{pred}", (10, 60),
                             cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
 
-    # 🧠 Grammar correction every 2 seconds only
-    raw_text = " ".join(sentence[-5:])
-    if time.time() - last_correction_time > 2:
-        polished = correct_sentence(raw_text)
-        last_correction_time = time.time()
+    # 🧠 Display corrected sentence (safe read)
+    with lock:
+        display_text = polished
 
-    # Display corrected sentence
-    cv2.putText(frame, polished, (10, 450),
+    cv2.putText(frame, display_text, (10, 450),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
     cv2.imshow("Live Sign to Sentence", frame)

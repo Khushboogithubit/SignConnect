@@ -24,9 +24,18 @@
                 <li><a href="#services_section" class="active" hidden>Services</a></li>
                 <li><a href="#contactus_section" class="active" hidden>Contact</a></li>
             </ul>
-            <div class="srch"><input type="text" class="search" placeholder="Search here..."><img src="images/icon/WhatsApp Image 2025-07-01 at 16.00.14_05bf9793.jpg" alt="search" onclick=slide()></div>
+            <div class="srch">
+            <input type="text" id="searchBox" class="search" placeholder="Search here...">
+            <!-- Image acts like search button -->
+            <img src="images/icon/WhatsApp Image 2025-07-01 at 16.00.14_05bf9793.jpg" 
+                alt="search" 
+                style="cursor:pointer;" 
+                onclick="searchSite()">
+            </div>
+
             <a class="get-started" href="https://app.studytogether.com/auth/signin1?src=Homepage">Get Started</a>
             <img src="images/icon/WhatsApp Image 2025-07-01 at 17.31.55_0b5fce0a.jpg" width="30" alt="menu">
+
         </nav>
         <div class="head-container">
             <div class="quote">
@@ -190,13 +199,13 @@
                 </center>
             </div>
             <div class="card">
-                <center><img src="images/creator/kanishka sharma.jpg"></center>
+                <center><img src="images/creator/mahi chauksey.png"></center>
                 <center>
-                    <div class="card-title">Kanishka Sharma</div>
+                    <div class="card-title">Mahi Chauksey</div>
                     <div id="detail">
-                        <p>“ To have another language is to possess a second soul“</p>
+                        <p>“ Language is a weapon , and when used correctly , it has the power to change the world“</p>
                         <div class="duty"></div>
-                        <a href="https://www.linkedin.com/in/kanishka-sharma-35315432b?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app" target="_blank"><button class="btn-ks">Follow +</button></a>
+                        <a href="https://www.linkedin.com/in/mahi-chauksey-bb980528a/" target="_blank"><button class="btn-ks">Follow +</button></a>
                     </div>
                 </center>
             </div>
@@ -212,6 +221,17 @@
                 </center>
             </div>
             <div class="card">
+                <center><img src="images/creator/kanishka sharma.jpg"></center>
+                <center>
+                    <div class="card-title">Kanishka Sharma</div>
+                    <div id="detail">
+                        <p>“ To have another language is to possess a second soul“</p>
+                        <div class="duty"></div>
+                        <a href="https://www.linkedin.com/in/kanishka-sharma-35315432b?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=android_app" target="_blank"><button class="btn-ks">Follow +</button></a>
+                    </div>
+                </center>
+            </div>
+            <!-- <div class="card">
                 <center><img src="images/creator/iksha.jpg"></center>
                 <center>
                     <div class="card-title">Iksha</div>
@@ -221,7 +241,7 @@
                         <a href="https://www.linkedin.com/in/iksha6?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app" target="_blank"><button class="btn-is">Follow +</button></a>
                     </div>
                 </center>
-            </div>
+            </div> -->
 
         </div>
     </div>
@@ -309,8 +329,8 @@
             </div>
         </div>
     </footer>
-    <script type="text/javascript" src="script.js"></script>
     <script src="https://code.jquery.com/jquery-3.2.1.js"></script>
+    <script type="text/javascript" src="script.js"></script>
     <script>
         $(window).on('scroll', function() {
             if ($(window).scrollTop()) {
@@ -318,7 +338,64 @@
             } else {
                 $('nav').removeClass('black');
             }
-        })
+        });
+
+        function searchSite() {
+        let query = document.getElementById("searchBox").value.toLowerCase();
+        if (!query) return;
+
+        // Remove previous highlights
+        document.querySelectorAll("mark").forEach(m => {
+            m.outerHTML = m.innerText;
+        });
+
+        let elements = document.querySelectorAll("body *:not(script):not(style)");
+        let firstMatch = null;
+        let found = false;
+
+        elements.forEach(el => {
+            if (el.childNodes.length) {
+                el.childNodes.forEach(node => {
+                    if (node.nodeType === 3) { // text node
+                        let text = node.nodeValue;
+                        let lower = text.toLowerCase();
+                        if (lower.includes(query)) {
+                            found = true;
+
+                            // Highlight matches
+                            let newHTML = text.replace(
+                                new RegExp(query, "gi"),
+                                match => `<mark>${match}</mark>`
+                            );
+                            let span = document.createElement("span");
+                            span.innerHTML = newHTML;
+                            el.replaceChild(span, node);
+
+                            // Save first match for scrolling
+                            if (!firstMatch) {
+                                firstMatch = span.querySelector("mark");
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        if (found && firstMatch) {
+            // Auto scroll to first match
+            firstMatch.scrollIntoView({ behavior: "smooth", block: "center" });
+        } else {
+            alert("No match found for: " + query);
+        }
+    }
+
+    // Support Enter key
+    document.getElementById("searchBox").addEventListener("keypress", function(e) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            searchSite();
+        }
+    });
     </script>
 
 </body>

@@ -4,45 +4,146 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Live Sign to Text</title>
+  <link rel="stylesheet" href="../static/styles.css">
   <style>
-    body { text-align: center; font-family: Arial; background-color: #f9f9f9; }
-    video { border: 2px solid #333; margin-top: 20px; }
-    #prediction { font-size: 24px; color: green; margin-top: 20px; }
+    body {
+      text-align: center;
+      font-family: Arial;
+      background-color: #f9f9f9;
+      margin: 0;
+      padding: 40px;
+    }
+
+    h1 {
+      margin-bottom: 20px;
+    }
+
+    #video-container {
+      position: relative;
+      display: inline-block;
+      width: 640px;
+      height: 480px;
+      border: 2px solid #333;
+      background-color: #000;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .btn {
+      margin-top: 15px;
+      margin-right: 10px;
+      padding: 10px 20px;
+      font-size: 18px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+    }
+
+    #startBtn {
+      background-color: #28a745;
+      color: white;
+    }
+
+    #startBtn:hover {
+      background-color: #218838;
+    }
+
+    #stopBtn {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    #stopBtn:hover {
+      background-color: #c82333;
+    }
+
+    #prediction {
+      font-size: 24px;
+      color: green;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
   <h1>Live Sign to Sentence Converter</h1>
-  <video id="webcam" width="640" height="480" autoplay></video>
+
+  <div id="video-container">
+    <video id="webcam" autoplay></video>
+  </div>
+
+  <br>
+  <button class="btn" id="startBtn">Start Sign Detection</button>
+  <button class="btn" id="stopBtn" disabled>Stop Detection</button>
+
   <p id="prediction">Prediction: <span id="word">...</span></p>
 
   <script>
     const video = document.getElementById('webcam');
     const wordSpan = document.getElementById('word');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    let stream = null;
+    let intervalId = null;
 
     async function startWebcam() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        video.style.display = 'block';
+      } catch (err) {
+        alert('Error accessing webcam: ' + err.message);
+      }
     }
 
-    startWebcam();
+    function stopWebcam() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        video.srcObject = null;
+        video.style.display = 'none';
+        wordSpan.textContent = '...';
+      }
+    }
 
-    setInterval(async () => {
+    async function sendFrameToServer() {
       const canvas = document.createElement('canvas');
       canvas.width = 640;
       canvas.height = 480;
-      canvas.getContext('2d').drawImage(video, 0, 0, 640, 480);
-
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const base64Image = canvas.toDataURL('image/jpeg');
 
-      const res = await fetch('http://127.0.0.1:5000/predict', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Image })
-      });
+      try {
+        const res = await fetch('http://127.0.0.1:5000/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: base64Image })
+        });
 
-      const data = await res.json();
-      wordSpan.textContent = data.corrected || data.prediction;
-    }, 2000); // every 2 seconds
+        const data = await res.json();
+        wordSpan.textContent = data.corrected || data.prediction || 'No prediction';
+      } catch (error) {
+        wordSpan.textContent = "Server not responding";
+      }
+    }
+
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      await startWebcam();
+      intervalId = setInterval(sendFrameToServer, 2000);
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopBtn.disabled = true;
+      startBtn.disabled = false;
+      stopWebcam();
+      clearInterval(intervalId);
+    });
   </script>
 </body>
 </html>
