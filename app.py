@@ -1,67 +1,129 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
-import mediapipe as mp
-import numpy as np
-import base64
-import re
-import pickle
-from grammar_corrector import correct_sentence  # ✅ Ensure this file exists and works
+import cv2, mediapipe as mp, pickle, numpy as np, base64, threading, time
+from grammar_corrector import polish_sentence as correct_sentence
+from io import BytesIO
+from PIL import Image
 
 app = Flask(__name__)
-CORS(app)  # ✅ Allow requests from any origin (or specify origins=["http://127.0.0.1:5502"] for stricter control)
+CORS(app)
 
-# Load the trained model
+# ---------------- MODEL LOAD ----------------
 with open("model/gesture_model.pkl", "rb") as f:
     model = pickle.load(f)
 
-# Setup MediaPipe Hands
+print("✅ Model Loaded")
+
+# ---------------- MEDIAPIPE ----------------
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.7)
+hands = mp_hands.Hands(
+    max_num_hands=2,
+    min_detection_confidence=0.6,
+    min_tracking_confidence=0.6
+)
 
-# ✅ Serve signlive.html from 'pages/' folder
-@app.route("/")
-def serve_signlive():
-    return send_from_directory("pages", "signlive.html")
+# ---------------- SENTENCE ----------------
+sentence = []
+last_word = ""
+last_word_time = time.time()
+polished = ""
+lock = threading.Lock()
 
-# ✅ Predict gesture from base64 image
-@app.route("/predict", methods=["POST"])
-def predict():
-    data = request.get_json()
-    image_data = data.get("image")
+def update_sentence(word):
+    global last_word, last_word_time, sentence
+    if word != last_word and time.time() - last_word_time > 1:
+        sentence.append(word)
+        last_word = word
+        last_word_time = time.time()
 
-    if not image_data:
-        return jsonify({"prediction": "No image", "corrected": "No image"})
+# ---------------- BACKGROUND GRAMMAR ----------------
+def background_corrector():
+    global polished
+    while True:
+        if len(sentence) >= 2:
+            raw_text = " ".join(sentence[-5:])
+            try:
+                new_text = correct_sentence(raw_text)
+                with lock:
+                    polished = new_text
+            except:
+                pass
+        time.sleep(3)
 
-    # Decode base64 image
-    image_data = re.sub('^data:image/.+;base64,', '', image_data)
-    try:
-        image = base64.b64decode(image_data)
-        nparr = np.frombuffer(image, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    except Exception as e:
-        return jsonify({"prediction": "Error decoding image", "corrected": str(e)})
+threading.Thread(target=background_corrector, daemon=True).start()
 
-    # Mirror and convert image
-    img = cv2.flip(img, 1)
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+# ---------------- PREDICTION ----------------
+def predict_from_frame(base64_image):
+    image_data = base64.b64decode(base64_image.split(",")[1])
+    image = Image.open(BytesIO(image_data)).convert("RGB")
+    frame = np.array(image)
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-    # Process image using MediaPipe
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = hands.process(rgb)
 
+    prediction = "..."
+
     if result.multi_hand_landmarks:
+        print("✋ Hand detected")
+        row = []
+
         for lm in result.multi_hand_landmarks:
-            row = [v for p in lm.landmark for v in (p.x, p.y, p.z)]
-            if len(row) == 63:
-                try:
-                    pred = model.predict([row])[0]
-                    corrected = correct_sentence(pred)
-                    return jsonify({"prediction": pred, "corrected": corrected})
-                except Exception as e:
-                    return jsonify({"prediction": "Prediction error", "corrected": str(e)})
+            row.extend([v for p in lm.landmark for v in (p.x, p.y, p.z)])
 
-    return jsonify({"prediction": "No Hand", "corrected": "No Hand"})
+        if len(row) == 63:
+            row.extend([0.0]*63)
 
-# ✅ Run on port 5000 for API
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+        if len(row) == 126:
+            try:
+                prob = model.predict_proba([row])
+                confidence = max(prob[0])
+
+                print(f"Confidence: {confidence}")
+
+                if confidence > 0.6:
+                    prediction = model.predict([row])[0]
+                    print(f"Prediction: {prediction}")
+                    update_sentence(prediction)
+            except Exception as e:
+                print("Prediction error:", e)
+
+    else:
+        print("❌ No hand detected")
+
+    with lock:
+        corrected = polished
+
+    return prediction, corrected
+
+@app.route('/')
+def home():
+    return "Server is working ✅"
+# ---------------- ROUTES ----------------
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    base64_image = data.get("image")
+    print("🔥 API CALLED")
+
+    if not base64_image:
+        return jsonify({"error": "No image"}), 400
+
+    pred, corrected = predict_from_frame(base64_image)
+
+    return jsonify({
+        "prediction": pred,
+        "corrected": corrected
+    })
+
+
+@app.route('/reset', methods=['POST'])
+def reset():
+    global sentence
+    sentence = []
+    return jsonify({"message": "Sentence cleared"})
+
+# ---------------- RUN ----------------
+if __name__ == '__main__':
+    print("🚀 Flask Server Starting...")
+    app.run(port=5000, debug=False)

@@ -40,6 +40,42 @@ function switchTAB() {
 	i++;
 }
 
+function convertText() {
+  let sentence = document.getElementById("textInput").value;
+  let words = sentence.toLowerCase().split(" ");
+
+  let container = document.getElementById("videoContainer");
+  container.innerHTML = "";
+
+  words.forEach(word => {
+    let video = document.createElement("video");
+
+    video.src = `../sign_videos/${word}.mp4`;
+    video.autoplay = true;
+    video.controls = true;
+    video.width = 180;
+
+    // fallback if video not found
+    video.onerror = function () {
+      video.src = "../sign_videos/default.mp4";
+    };
+
+    container.appendChild(video);
+  });
+}
+
+const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+
+recognition.onresult = function(event) {
+  let text = event.results[0][0].transcript;
+  document.getElementById("textInput").value = text;
+  convertText();
+};
+
+function startSpeech() {
+  recognition.start();
+}
+
 // For LOGIN
 var x = document.getElementById("login");
 var y = document.getElementById("register");

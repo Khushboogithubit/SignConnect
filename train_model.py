@@ -1,44 +1,59 @@
-import pandas as pd
 import os
+import csv
 import pickle
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 X, y = [], []
 
-# Check both data sources
-folders = ["data", "uploads"]
+folder = "data"
 
-for folder in folders:
-    if not os.path.exists(folder):
-        continue  # skip if folder not present
+if not os.path.exists(folder):
+    raise Exception("❌ No 'data' folder found.")
 
-    for file in os.listdir(folder):
-        if not file.endswith(".csv"):
-            continue
+for file in os.listdir(folder):
+    if not file.endswith(".csv"):
+        continue
 
-        label = file[:-4]  # filename without .csv = gesture label
-        df = pd.read_csv(f"{folder}/{file}", header=None)
+    # ✅ label fix
+    label = file.replace(".csv", "")
 
-        # Each row is one landmark set (21 points × 3 coords = 63 values)
-        for row in df.values:
-            if len(row) == 63:   # ✅ only full rows
+    with open(os.path.join(folder, file), "r") as f:
+        reader = csv.reader(f)
+
+        for row in reader:
+            row = [float(x) for x in row]
+
+            # pad if single hand
+            if len(row) == 63:
+                row.extend([0.0]*63)
+
+            if len(row) == 126:
                 X.append(row)
                 y.append(label)
 
-# Train-test split
+if len(X) < 10:
+    raise Exception("❌ Not enough data. Collect more.")
+
+# Split
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42
 )
 
-# Train KNN
-model = KNeighborsClassifier(n_neighbors=5)
+# ✅ Better model
+model = RandomForestClassifier(n_estimators=100)
 model.fit(X_train, y_train)
 
-# Save trained model
+# Evaluate
+y_pred = model.predict(X_test)
+acc = accuracy_score(y_test, y_pred)
+
+# Save
 os.makedirs("model", exist_ok=True)
 with open("model/gesture_model.pkl", "wb") as f:
     pickle.dump(model, f)
 
-print("✅ Model trained successfully with only valid rows.")
-print(f"Training samples: {len(X_train)}, Testing samples: {len(X_test)}")
+print("✅ Model trained successfully")
+print(f"Samples: {len(X)}")
+print(f"🎯 Accuracy: {acc*100:.2f}%")

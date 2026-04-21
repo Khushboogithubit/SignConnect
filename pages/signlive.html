@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Live Sign to Text</title>
-  <link rel="stylesheet" href="../static/styles.css">
+  <link rel="stylesheet" href="../styles.css">
   <style>
     body {
       text-align: center;
@@ -80,11 +80,12 @@
   <button class="btn" id="startBtn">Start Sign Detection</button>
   <button class="btn" id="stopBtn" disabled>Stop Detection</button>
 
-  <p id="prediction">Prediction: <span id="word">...</span></p>
-
+  <p id="prediction">Word: <span id="word">...</span></p>
+  <p id="sentence">Sentence: <span id="fullSentence">...</span></p>
   <script>
     const video = document.getElementById('webcam');
     const wordSpan = document.getElementById('word');
+    const sentenceSpan = document.getElementById('fullSentence');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     let stream = null;
@@ -114,22 +115,36 @@
       canvas.width = 640;
       canvas.height = 480;
       const context = canvas.getContext('2d');
+
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       const base64Image = canvas.toDataURL('image/jpeg');
 
       try {
         const res = await fetch('http://127.0.0.1:5000/predict', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64Image })
-        });
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image })
+      });
 
-        const data = await res.json();
-        wordSpan.textContent = data.corrected || data.prediction || 'No prediction';
-      } catch (error) {
-        wordSpan.textContent = "Server not responding";
+    // 🔥 CHECK RESPONSE FIRST
+      if (!res.ok) {
+        throw new Error("Server error: " + res.status);
       }
+
+      const data = await res.json();
+
+      console.log("DATA:", data);
+
+    // ✅ SHOW WORD + SENTENCE
+      wordSpan.textContent = data.prediction ? data.prediction : "...";
+      sentenceSpan.textContent = data.corrected ? data.corrected : "...";
+
+    } catch (error) {
+      console.error("ERROR:", error);
+      wordSpan.textContent = "Server error";
+      sentenceSpan.textContent = "...";
     }
+  }
 
     startBtn.addEventListener('click', async () => {
       startBtn.disabled = true;

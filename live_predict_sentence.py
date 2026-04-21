@@ -2,60 +2,39 @@ import cv2
 import mediapipe as mp
 import pickle
 import time
-import threading
-from grammar_corrector import correct_sentence  # ✅ Hugging Face grammar fixer
+from grammar_corrector import polish_sentence  # Your grammar correction module
+import numpy as np
 
-# -------------------------------
-# Load trained model
-# -------------------------------
+# ----------------- LOAD MODEL -----------------
 with open("model/gesture_model.pkl", "rb") as f:
     model = pickle.load(f)
 
-# MediaPipe setup
+# ----------------- MEDIAPIPE SETUP -----------------
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7)
 mp_draw = mp.solutions.drawing_utils
 
-# Webcam setup
+# ----------------- WEBCAM SETUP -----------------
 cap = cv2.VideoCapture(0)
 
-# Sentence storage
+# ----------------- SENTENCE STORAGE -----------------
 sentence = []
 last_word = ""
 last_word_time = time.time()
-polished = ""  # latest corrected sentence
+last_correction_time = time.time()
+polished = ""
 
-# Lock for thread-safe grammar correction
-lock = threading.Lock()
-
-# -------------------------------
-# Sentence update function
-# -------------------------------
+# Update sentence only if word changes
 def update_sentence(word):
     global last_word, last_word_time, sentence
-    if word != last_word and time.time() - last_word_time > 1:  # avoid duplicates
+    if word != last_word and time.time() - last_word_time > 1:
         sentence.append(word)
         last_word = word
         last_word_time = time.time()
 
-# -------------------------------
-# Background grammar correction thread
-# -------------------------------
-def background_corrector():
-    global polished
-    while True:
-        if len(sentence) > 0:
-            raw_text = " ".join(sentence[-5:])  # last 5 words only
-            new_text = correct_sentence(raw_text)
-            with lock:
-                polished = new_text
-        time.sleep(2)  # run every 2 sec without blocking video
-
-threading.Thread(target=background_corrector, daemon=True).start()
-
-# -------------------------------
 print("🎥 Live Sign Prediction Running — Press 'q' to quit.")
-# -------------------------------
+
+# ----------------- MAIN LOOP -----------------
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
@@ -66,21 +45,31 @@ while cap.isOpened():
     result = hands.process(rgb)
     frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
+    row = []
     if result.multi_hand_landmarks:
         for lm in result.multi_hand_landmarks:
             mp_draw.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
-            row = [v for p in lm.landmark for v in (p.x, p.y, p.z)]
-            if len(row) == 63:
-                pred = model.predict([row])[0]
-                update_sentence(pred)
-                cv2.putText(frame, f"{pred}", (10, 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+            row.extend([v for p in lm.landmark for v in (p.x, p.y, p.z)])
 
-    # 🧠 Display corrected sentence (safe read)
-    with lock:
-        display_text = polished
+        # Pad to 126 features if only one hand
+        if len(row) == 63:
+            row.extend([0.0]*63)
 
-    cv2.putText(frame, display_text, (10, 450),
+    # Predict only if row has 126 features
+    if len(row) == 126:
+        pred = model.predict([row])[0]
+        update_sentence(pred)
+        cv2.putText(frame, f"{pred}", (10, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
+
+    # Grammar correction every 2 seconds
+    raw_text = " ".join(sentence[-5:])  # last 5 words
+    if time.time() - last_correction_time > 2:
+        polished = polish_sentence(raw_text)
+        last_correction_time = time.time()
+
+    # Display corrected sentence
+    cv2.putText(frame, polished, (10, 450),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
 
     cv2.imshow("Live Sign to Sentence", frame)

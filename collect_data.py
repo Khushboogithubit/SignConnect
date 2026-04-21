@@ -1,9 +1,11 @@
+
 import cv2
 import mediapipe as mp
-import csv, os
+import csv, os, time
+import numpy as np
 
 # ----------------- SETUP -----------------
-label = input("Enter label: ").strip().lower()
+label = input("Enter label (word): ").strip().lower()
 os.makedirs("data", exist_ok=True)
 csv_path = f"data/{label}.csv"
 csv_file = open(csv_path, "a", newline="")
@@ -11,84 +13,67 @@ writer = csv.writer(csv_file)
 
 mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=2, min_detection_confidence=0.7)
+draw = mp.solutions.drawing_utils
 
-# ----------------- CHOOSE MODE -----------------
-print("\nChoose input mode:")
-print("1. Images from 'uploads/images'")
-print("2. Videos from 'uploads/videos'")
-print("3. Real-time Camera")
-choice = input("Enter (1/2/3): ").strip()
+cap = cv2.VideoCapture(0)
+print("Press 'c' to capture a 2s clip, 'q' to quit.")
 
-# ----------------- PROCESS IMAGE -----------------
-def process_image(img_path):
-    img = cv2.imread(img_path)
-    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    result = hands.process(rgb)
-    if result.multi_hand_landmarks:
-        for lm in result.multi_hand_landmarks:
-            row = [v for p in lm.landmark for v in (p.x, p.y, p.z)]
-            writer.writerow(row)
+# ----------------- FUNCTION: RECORD CLIP -----------------
+def record_clip(duration=2):
+    start = time.time()
+    clip_data = []
 
-# ----------------- PROCESS VIDEO -----------------
-def process_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-    while cap.isOpened():
+    while time.time() - start < duration:
         ret, frame = cap.read()
         if not ret:
             break
+        frame = cv2.flip(frame, 1)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         result = hands.process(rgb)
+
+        row = []
         if result.multi_hand_landmarks:
             for lm in result.multi_hand_landmarks:
-                row = [v for p in lm.landmark for v in (p.x, p.y, p.z)]
-                writer.writerow(row)
-    cap.release()
+                draw.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
+                row.extend([v for p in lm.landmark for v in (p.x, p.y, p.z)])
 
-# ----------------- PROCESS CAMERA -----------------
-def process_camera():
-    cap = cv2.VideoCapture(0)  # webcam
-    print("Press 'q' to quit camera...")
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = hands.process(rgb)
-        if result.multi_hand_landmarks:
-            for lm in result.multi_hand_landmarks:
-                row = [v for p in lm.landmark for v in (p.x, p.y, p.z)]
-                writer.writerow(row)
+        # Pad to 126 values if only one hand detected
+        if len(row) == 63:
+            row.extend([0.0]*63)
 
-        cv2.imshow("Camera Feed", frame)
+        if row:  # at least one hand detected
+            clip_data.append(row)
+
+
+        cv2.imshow("Clip Recording", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+            return None  # exit
 
-# ----------------- MAIN LOGIC -----------------
-if choice == "1":  # Images
-    folder = "uploads/images"
-    os.makedirs(folder, exist_ok=True)
-    files = [f"{folder}/{f}" for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-    for img in files:
-        process_image(img)
-    print(f"✅ Processed {len(files)} images.")
+    if clip_data:
+        # Average landmarks over the clip → one row
+        clip_array = np.mean(np.array(clip_data), axis=0)
+        writer.writerow(clip_array)
+        print(f"✅ Saved one sample for '{label}' ({len(clip_data)} frames).")
 
-elif choice == "2":  # Videos
-    folder = "uploads/videos"
-    os.makedirs(folder, exist_ok=True)
-    files = [f"{folder}/{f}" for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.avi', '.mov'))]
-    for vid in files:
-        process_video(vid)
-        print(f"🎥 Done: {vid}")
-    print(f"✅ Processed {len(files)} videos.")
+# ----------------- MAIN LOOP -----------------
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+    frame = cv2.flip(frame, 1)
+    cv2.putText(frame, "Press 'c' to record 2s clip, 'q' to quit",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
+    cv2.imshow("Collect Clips", frame)
 
-elif choice == "3":  # Camera
-    process_camera()
-    print("✅ Camera session completed.")
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord("c"):
+        print("🎬 Recording 2s clip...")
+        record_clip()
+    elif key == ord("q"):
+        break
 
-else:
-    print("❌ Invalid choice.")
-
+cap.release()
 csv_file.close()
-print(f"\n📁 Landmark data saved to {csv_path}")
+cv2.destroyAllWindows()
+print(f"📁 Data saved to {csv_path}")
+
